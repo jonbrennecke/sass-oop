@@ -1,0 +1,228 @@
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+// 
+// A basic object/inheritence model for Sass
+// 
+// by Jon Brennecke / github.com/jonbrennecke
+// 
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+// 
+// set the value of the list element at the given index and return 
+// the modified list
+// 
+// :param $list - list to be modified
+// :param $index - index of the element to be modified
+// :param $value - value to set
+// 
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+@function list-set($list,$index,$value) {
+	$newlist: ();
+	@for $i from 1 through length($list) {
+		$newlist: append($newlist,if($i == $index,$value,nth($list,$i)));
+	}
+	@return $newlist;
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+// 
+// lookup the instance's methods
+// 
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+@function methods($this) {
+	@return map-get($this,"methods");
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+// 
+// lookup the instance's properties
+// 
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+@function properties($this) {
+	@return map-get($this,"properties");
+}
+
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+// 
+// call the parent class constructor (if there is one), otherwise
+// the returned object will be unmodified
+// 
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+@function super( $this, $args : () ) {
+
+	// if the class inherits from another class, call its constructor
+	$base: map-get($this,"inherits");
+	@if $base {
+		
+		// call the base class' constructor
+		$super: new($base,$args);
+
+		// merge the properties
+		$props: map-merge(properties($this),properties($super));
+		$this: map-merge($this,("properties":$props));
+
+		// merge the methods
+		$methods: map-merge(methods($this),methods($super));
+		$this: map-merge($this,("methods":$methods));
+		
+		@return $this;
+	}
+	@else {
+		@return $this;
+	}
+}
+
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+// 
+// the default class constructor - if no constructor is provided, the 
+// default constructor enumerates the arguments and sets each 
+// properties to the i-th argument.
+// 
+// :param $this - the object instance
+// :param $kwargs - constructor keyword arguments
+// 
+// :returns the object instance
+// 
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+@function default_constructor($this,$args:(),$super_args:()) {
+	
+	// call the super-class constructor
+	$this: super($this,$super_args);
+
+	$keys: map-keys(properties($this));
+	@for $i from 1 through length($args) {
+		$this: class-set($this,nth($keys,$i),nth($args,$i));
+	}
+
+	@return $this;
+}
+
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+//
+// define a "class" structure
+// 
+// :param $kwargs - (map) keyword arguments with the following fields:
+// 	"constructor" - (function) the class constructor
+// 	"properties" - (list) a list of property names
+// 	"methods" - (list) a list of method names (these must the names of actual functions)
+//
+// :return - (map) the class definition
+// 
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+@function class( $kwargs : () ) {
+
+	$defaults: ( 
+		"constructor" : default_constructor,
+		"methods" : (),
+		"properties" : (),
+		"inherits" : null );
+
+	// merge the default arguments with the provided args
+	// in map-merge, the second map takes precedence
+	// so any missing fields in the user-provided $kwards will
+	// be filled in by default values
+	$args: map-merge($defaults,$kwargs);
+	
+	// defaults
+	$props: ();
+
+	// retrieve the properties and convert the property names passed in "$props_list" into a map
+	@each $prop in properties($args) {
+		$props: map-merge($props,($prop:null));
+	}
+
+	// construct the object as a "list" of properties and methods
+	@return map-merge($args,("properties":$props));
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+// 
+// call a class method
+// 
+// :param $this - object instanct
+// :param $name - method name
+// :param $args - list of method arguments to be passed through
+// 
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+@function call-method($this,$name,$args:()) {
+	$func: map_get(methods($this),$name);
+	@if $func and function-exists($func) {
+		@return call($func,$this,$args);
+	}
+	@else {
+		@warn "The given class method '#{$name}' does not exist or is not a valid Sass function.";
+		@return null;
+	}
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+// 
+// define a class method
+// 
+// :param $class - original class definition (without the added method)
+// :param $name - method name (does not have to be the same as the actual function name)
+// :param $func - the function
+// :return $class - class definition (with the added method)
+// 
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+@function def-method($class,$name,$func) {
+	$methods: map-merge(methods($class),($name:$func));
+	@return map-merge($class,("methods":$methods));
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+// 
+// property setter
+// :return $this - object instance
+// 
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+@function class-set($this,$name,$value) {
+	@return map-merge($this,( "properties" : map-merge( properties($this), ( $name : $value ))));
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+//
+// property getter
+// :return property value
+//
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+@function class-get( $this, $name ) {
+	@return map-get(properties($this),$name)
+}
+
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+// 
+// create a new instance of a class
+// 
+// :param $class - the class definition
+// :param $args - (list) arguments to the constructor
+// :param $super_args - (list)
+// 
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+@function new( $class, $args : () ) {
+
+	// allocate an empty object of the class
+	$this: $class;
+
+	// retrieve the class constructor
+	$constructor: map-get($class,"constructor");
+
+	// call the constructor if it is a valid function
+	@if $constructor and function-exists($constructor) {
+		@return call($constructor,$this,$args)
+	}
+	@else {
+		// otherwise, warn and call the default constructor
+		@warn "The given constructor '#{$constructor}' is not a valid Sass function";
+		@return default_constructor($this,$args);
+	}
+}
+
